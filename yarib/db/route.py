@@ -87,12 +87,10 @@ class Route(object):
                 attr_dict[ATTRIBUTE_ID_2_STR[2]] = ''
                 attr_dict['ORIGIN_AS'] = ''
         for prefix in msg['NLRI']:
-            pass
-        #         self.db_collection.update_one({'PREFIX': prefix}, {'$set': attr_dict}, upsert=True)
-        # # for withdraw
+            self.db_collection.update_one({'PREFIX': prefix}, {'$set': attr_dict}, upsert=True)
+        # for withdraw
         for prefix in msg['WITHDRAW']:
-            pass
-        #     self.db_collection.delete_one({'PREFIX': prefix})
+            self.db_collection.delete_one({'PREFIX': prefix})
 
     def clear(self):
         """

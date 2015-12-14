@@ -26,20 +26,24 @@ LOG = logging.getLogger(__name__)
 class MessageFileManager(object):
     """Message Manager"""
 
-    def __init__(self, msgfile_dir, lastseq=0):
+    def __init__(self, msgfile_dir, lastseq=0, last_file=None):
 
         """
         init message file object
         :param msgfile_dir: message file dir for this peer
         :param lastseq: last sequence number that read successfully
+        :param last_file: the last file name
         """
         self.file_dir = msgfile_dir
-        self.file_name = self._locate_file(self.file_dir, lastseq)
+        self.file_name = self._locate_file(self.file_dir, lastseq, last_file)
         self.last_line = ''
-        self._f = self._locate(self.file_name, lastseq)
+        if last_file:
+            self._f = open(self.file_name)
+        else:
+            self._f = self._locate(self.file_name, lastseq)
         self.file_list = []
 
-    def _locate_file(self, file_dir, lastseq=0):
+    def _locate_file(self, file_dir, lastseq=0, last_file=None):
         """
         locate the right message file
         :param file_dir:
