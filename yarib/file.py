@@ -26,51 +26,67 @@ LOG = logging.getLogger(__name__)
 class MessageFileManager(object):
     """Message Manager"""
 
-    def __init__(self, msgfile_dir, lastseq=0, last_file=None):
-
+    def __init__(self, msgfile_dir, lastseq=0):
         """
+        Get the file we wanted and located the line. if the flag `last_file` is False,
+        We located the line according to the last sequence number, and find the exactly line;
+        If the `last_file` is True, we only find the last updated file and located the first
+        line of it.
         init message file object
         :param msgfile_dir: message file dir for this peer
-        :param lastseq: last sequence number that read successfully
-        :param last_file: the last file name
+        :param lastseq: last sequence number that read successfully, if `lastseq` = 0, then read
+        from the first line of the first file, if `lastseq` = -1, then read from the first line from
+        the last updated file. otherwise, try to find the exactly line of sequence number.
         """
         self.file_dir = msgfile_dir
-        self.file_name = self._locate_file(self.file_dir, lastseq, last_file)
+        self.lastseq = lastseq
+        self.file_name = self._locate_file()
         self.last_line = ''
-        if last_file:
-            self._f = open(self.file_name)
-        else:
-            self._f = self._locate(self.file_name, lastseq)
-        self.file_list = []
+        # if last_file:
+        #     self._f = open(self.file_name)
+        # else:
+        #     self._f = self._locate(self.file_name, lastseq)
+        # self.file_list = []
 
-    def _locate_file(self, file_dir, lastseq=0, last_file=None):
+    def _locate_file(self):
         """
         locate the right message file
-        :param file_dir:
-        :param lastseq:
         """
-        LOG.info('Locate message file, when message seq = %s.' % lastseq)
-        if not os.path.exists(file_dir):
-            LOG.critical('The BGP data path does not exist, path=%s' % file_dir)
+        LOG.info('Locate message file, when message seq = %s.' % self.lastseq)
+        if not os.path.exists(self.file_dir):
+            LOG.critical('The BGP data path does not exist, path=%s' % self.file_dir)
             sys.exit()
-        self.file_list = os.listdir(file_dir)
+        self.file_list = os.listdir(self.file_dir)
         # delete dir
         dir_name_list = []
         for file_ in self.file_list:
-            if os.path.isdir(os.path.join(file_dir, file_)):
+            if os.path.isdir(os.path.join(self.file_dir, file_)):
                 dir_name_list.append(file_)
         for file_ in dir_name_list:
             self.file_list.remove(file_)
-
+        if not self.file_list:
+            LOG.critical('There are no files!')
+            sys.exit()
         self.file_list.sort()
-        if lastseq == 0:
-            file_name = os.path.join(file_dir, self.file_list[0])
+
+        if self.lastseq == 0:
+            # return the first file
+            file_name = os.path.join(self.file_dir, self.file_list[0])
             LOG.info('Locate file successfully, file = %s' % file_name)
             return file_name
 
+        elif self.lastseq == -1:
+            # return the last file
+            file_name = os.path.join(self.file_dir, self.file_list[-1])
+            LOG.info('Locate file successfully, file = %s' % file_name)
+            return file_name
+
+        # return the file contain the sequence number
         find_flag = False
         for file_ in self.file_list:
-            file_name = os.path.join(file_dir, file_)
+            # get the first line and last line, if sequence number is between the first line
+            # and last line, then find_flag is True and return the file name
+            file_name = os.path.join(self.file_dir, file_)
             with open(file_name, 'r') as f:
                 t = 0
                 while True:
@@ -109,14 +125,14 @@ class MessageFileManager(object):
                                 sys.exit()
                         break
                     offs *= 2
-            if first_line[1] <= lastseq <= last_line[1]:
+            if first_line[1] <= self.lastseq <= last_line[1]:
                 find_flag = True
                 break
         if find_flag:
             LOG.info('Locate file successfully, file = %s' % file_)
-            return os.path.join(file_dir, file_)
+            return os.path.join(self.file_dir, file_)
         else:
-            LOG.critical('Can not locate message file, when seq=%s' % lastseq)
+            LOG.critical('Can not locate message file, when seq=%s' % self.lastseq)
             sys.exit()
 
     @staticmethod
@@ -157,7 +173,7 @@ class MessageFileManager(object):
 
         old_file_name = os.path.split(self.file_name)[-1]
         file_list = os.listdir(self.file_dir)
-        # delete dir
+        # delete dirs
         dir_name_list = []
         for file_ in file_list:
             if os.path.isdir(os.path.join(self.file_dir, file_)):
