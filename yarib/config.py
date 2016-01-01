@@ -22,6 +22,6 @@ CONF = cfg.CONF
 
 com_cli_opts = [
     cfg.StrOpt('pid-file', default=None, help='pid file name'),
-    cfg.StrOpt('peer-ip', default=None, help='peer ip address', required=True),
+    cfg.IPOpt('peer-ip', default=None, help='peer ip address', required=True),
     cfg.StrOpt('msg-path', default='~/data/bgp/', help='bgp message location', required=True)
 ]
