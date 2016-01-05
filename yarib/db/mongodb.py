@@ -24,10 +24,8 @@ LOG = logging.getLogger(__name__)
 
 class MongoApi(object):
     """Class handling MongoDB specific functionality.
-
     This class uses PyMongo APIs internally to create database connection,
     also serves as handle to collection for get/set operations, etc.
-
     """
     # class level attributes for re-use of db client connection and collection
     _DB = {}  # dict of db_name: db connection reference
@@ -37,7 +35,6 @@ class MongoApi(object):
                  read_preference=3, write_concern=-1, w_timeout=5000):
         """for parameters details, please see
         http://api.mongodb.org/python/current/api/pymongo/mongo_client.html
-
         :param connection_url: string like mongodb://localhost:27017
         :param db_name: database name, string
         :param use_replica: if use replica, true of false
@@ -97,8 +94,21 @@ class MongoApi(object):
 
             if self.use_replica:
                 # for read preference
-                if self.read_preference:
-                    coll.read_preference = self.read_preference
+                # TODO(xiaoquwl) fix this as more elegant way in future
+                if self.read_preference is not None:
+                    if self.read_preference == 0:
+                        coll.with_options(read_preference=pymongo.ReadPreference.PRIMARY)
+                    elif self.read_preference == 1:
+                        coll.with_options(read_preference=pymongo.ReadPreference.PRIMARY_PREFERRED)
+                    elif self.read_preference == 2:
+                        coll.with_options(read_preference=pymongo.ReadPreference.SECONDARY)
+                    elif self.read_preference == 3:
+                        coll.with_options(read_preference=pymongo.ReadPreference.SECONDARY_PREFERRED)
+                    elif self.read_preference == 4:
+                        coll.with_options(read_preference=pymongo.ReadPreference.NEAREST)
+                    else:
+                        LOG.error('unknow read preference setting')
+                        pass
 
                 # for write concern
                 if self.w > -1:

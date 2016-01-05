@@ -29,11 +29,11 @@ class TestFile(unittest.TestCase):
         os.listdir = MagicMock(return_value=['1450672327.74.msg', '1450672676.07.msg', '1450673007.47.msg'])
 
     def test_locate_file_seq0(self):
-        self.message_file = MessageFileManager(msgfile_dir='/test', lastseq=0)
+        self.message_file = MessageFileManager(msgfile_dir=self.msg_path, lastseq=0)
         self.assertEqual(self.message_file.file_name, '/test/1450672327.74.msg')
 
     def test_locate_file_seq_neg_1(self):
-        self.message_file = MessageFileManager(msgfile_dir='/test', lastseq=-1)
+        self.message_file = MessageFileManager(msgfile_dir=self.msg_path, lastseq=-1)
         self.assertEqual(self.message_file.file_name, '/test/1450673007.47.msg')
 
 if __name__ == "__main__":

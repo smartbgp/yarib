@@ -14,6 +14,8 @@
 #    under the License.
 
 import logging
+import json
+import traceback
 
 from yarib.file import MessageFileManager
 from yarib.db.route import Route
@@ -29,32 +31,37 @@ class Consumer(object):
         self.file_handler = MessageFileManager(msg_path, last_seq)
         self.peer_ip = peer_ip
         self.rib_handler = Route()
+        self.first_time_catchup_flag = False
 
     def start(self):
 
+        update = False
+        insert = False
         while True:
             line = self.file_handler.readline
             if not line:
+                if not self.first_time_catchup_flag:
+                    self.first_time_catchup_flag = True
+                    self.rib_handler.update(attr=None, insert=True)
+                    # after that, set update True
+                    update = True
                 continue
             try:
-                bgp_msg = eval(line)
+                bgp_msg = json.loads(line)
             except Exception as e:
                 LOG.critical('Message format error when using eval, line = %s detail: %s' % (line, e))
                 continue
             # message type
-            if bgp_msg[2] == bgp_cons.BGP_UPDATE:
+            if bgp_msg['type'] == bgp_cons.BGP_UPDATE:
                 try:
-                    self.rib_handler.update(bgp_msg[3])
+                    self.rib_handler.update(
+                        attr=bgp_msg['attr'], nlri=bgp_msg['nlri'], withdraw=bgp_msg['withdraw'],
+                        update=update, insert=insert)
                 except Exception as e:
                     LOG.error(e)
-                    LOG.info(str(bgp_msg[3]))
-            elif bgp_msg[2] in [bgp_cons.BGP_NOTIFICATION, bgp_cons.BGP_OPEN]:
+                    LOG.debug(traceback.format_exc())
+            elif bgp_msg['type'] in [bgp_cons.BGP_NOTIFICATION, bgp_cons.BGP_OPEN]:
                 self.rib_handler.clear()
-            self.update_seq_file(bgp_msg[1])
-
-    def update_seq_file(self, seq):
-        with open('seq-%s' % self.peer_ip, 'w') as f:
-            f.write(str(seq))
 
     def stop(self):
         pass

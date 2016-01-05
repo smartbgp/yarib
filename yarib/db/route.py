@@ -17,7 +17,6 @@ import logging
 
 from yarib.db.mongodb import MongoApi
 from yarib.db.constants import MONGO_COLLECTION_RIB_TABLE
-from yarib.constants import ATTRIBUTE_ID_2_STR
 
 from oslo_config import cfg
 
@@ -33,6 +32,8 @@ class Route(object):
         self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_TABLE
         self.db_collection = self.mongo_connection.get_collection()
         self.create_index()
+        self.clear()
+        self.rib_table = {}
 
     @staticmethod
     def init_mongo():
@@ -54,11 +55,11 @@ class Route(object):
 
     def create_index(self):
         LOG.info('Try to create index.')
-        index_key_list = ['Prefix', 'PrefixLen', 'Origin_AS', 'PeerAddress']
+        index_key_list = ['PREFIX', 'ORIGIN_AS', 'PEERADDR']
         for key in index_key_list:
             self.db_collection.create_index(key, background=True)
 
-    def update(self, msg):
+    def update(self, attr, nlri=None, withdraw=None, insert=False, update=False):
         """
         update rib table based on the update message
         msg example:
@@ -67,30 +68,58 @@ class Route(object):
             'WITHDRAW',
             'NLRI'
         }
-        :param msg:
+        :param attr:
+        :param nlri:
+        :param withdraw:
+        :param update:
+        :param insert:
         :return:
         """
+        if insert:
+            # try to insert all prefix in self.rib_table to database
+            LOG.info('first catchup, and insert the full rib table, table size %s', len(self.rib_table))
+            record_list = []
+            for prefix, attr in self.rib_table.iteritems():
+                record = attr.copy()
+                record.update({'PREFIX': prefix})
+                record_list.append(record)
+            self.db_collection.insert_many(record_list)
+            self.rib_table = {}
+            LOG.info('finished insert the full rib table')
+            pass
         # TODO (peng xiao) only support IPv4 unicast now.
         # skip none ipv4 unicast messages
-        if msg['WITHDRAW'] == msg['NLRI']:
+        if nlri == withdraw:
             return
 
-        # for update
-        if msg['ATTR']:
-            attr_dict = {ATTRIBUTE_ID_2_STR[k]: v for k, v in msg['ATTR'].items()}
+        # for ipv4 update
+        if attr:
+            attr_dict = {'ATTR': attr, 'PEERADDR': CONF.peer_ip}
             # change as path
-            as_path = msg['ATTR'][2]
+            as_path = attr['2']
             if as_path:
                 attr_dict['ORIGIN_AS'] = as_path[0][1][-1]
-                attr_dict[ATTRIBUTE_ID_2_STR[2]] = ' '.join(map(str, as_path[0][1])).strip()
+                attr_dict['AS_PATH'] = ' '.join(map(str, as_path[0][1])).strip()
             else:
-                attr_dict[ATTRIBUTE_ID_2_STR[2]] = ''
+                attr_dict['AS_PATH'] = ''
                 attr_dict['ORIGIN_AS'] = ''
-        for prefix in msg['NLRI']:
-            self.db_collection.update_one({'PREFIX': prefix}, {'$set': attr_dict}, upsert=True)
-        # for withdraw
-        for prefix in msg['WITHDRAW']:
-            self.db_collection.delete_one({'PREFIX': prefix})
+
+            if insert is False and update is False:
+                for prefix in nlri:
+                    self.rib_table[prefix] = attr_dict
+            elif update:
+                for prefix in nlri:
+                    attr_dict['PREFIX'] = prefix
+                    self.db_collection.update_one({'PREFIX': prefix}, {'$set': attr_dict}, upsert=True)
+
+        else:
+            # for withdraw
+            if insert is False and update is False:
+                for prefix in withdraw:
+                    self.rib_table.pop(prefix)
+            elif update:
+                for prefix in withdraw:
+                    self.db_collection.delete_one({'PREFIX': prefix, 'PEERADDR': CONF.peer_ip})
 
     def clear(self):
         """
@@ -98,7 +127,8 @@ class Route(object):
         :return:
         """
         LOG.info('try to clear rib information for peer %s', CONF.peer_ip)
-        self.db_collection.delete_many({'PeerAddress': CONF.peer_ip})
+        self.db_collection.delete_many({'PEERADDR': CONF.peer_ip})
+        self.rib_table = {}
 
     def search(self, sql):
         pass

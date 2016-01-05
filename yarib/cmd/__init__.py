@@ -74,12 +74,7 @@ def main():
         prapare()
 
         # try to get the last sequence number, if it is the first time to run, the number is 0.
-        last_seq = 0
-        try:
-            with open('seq-%s' % CONF.peer_ip) as f:
-                    last_seq = int(f.read().strip())
-        except Exception as e:
-            LOG.info(e)
+        last_seq = -1
         file_consumer = Consumer(
             msg_path=os.path.join(CONF.msg_path, CONF.peer_ip, 'msg'), last_seq=last_seq, peer_ip=CONF.peer_ip)
     except Exception as e:

@@ -13,12 +13,12 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import re
 import os
 import time
 import sys
 import logging
 import traceback
+import json
 
 LOG = logging.getLogger(__name__)
 
@@ -28,9 +28,7 @@ class MessageFileManager(object):
 
     def __init__(self, msgfile_dir, lastseq=0):
         """
-        Get the file we wanted and located the line. if the flag `last_file` is False,
-        We located the line according to the last sequence number, and find the exactly line;
-        If the `last_file` is True, we only find the last updated file and located the first
+        Get the file we wanted and located the line according to the sequence number.
         line of it.
         init message file object
         :param msgfile_dir: message file dir for this peer
@@ -42,11 +40,8 @@ class MessageFileManager(object):
         self.lastseq = lastseq
         self.file_name = self._locate_file()
         self.last_line = ''
-        # if last_file:
-        #     self._f = open(self.file_name)
-        # else:
-        #     self._f = self._locate(self.file_name, lastseq)
-        # self.file_list = []
+        self._f = self._locate(self.file_name, lastseq)
+        self.first_time_catchup_flag = False
 
     def _locate_file(self):
         """
@@ -87,12 +82,14 @@ class MessageFileManager(object):
             # get the first line and last line, if sequence number is between the first line
             # and last line, then find_flag is True and return the file name
             file_name = os.path.join(self.file_dir, file_)
+            first_line = {}
+            last_line = {}
             with open(file_name, 'r') as f:
                 t = 0
                 while True:
                     first_line = next(f)
                     try:
-                        first_line = eval(first_line)
+                        first_line = json.loads(first_line)
                         break
 
                     except Exception as e:
@@ -111,12 +108,12 @@ class MessageFileManager(object):
                     if len(lines) > 1:
                         try:
                             last_line = lines[-1]
-                            last_line = eval(last_line)
+                            last_line = json.loads(last_line)
                         except Exception, e:
                             LOG.exception(e.message)
                             last_line = lines[-2]
                             try:
-                                last_line = eval(last_line)
+                                last_line = json.loads(last_line)
                             except Exception as e:
                                 LOG.error(e)
                                 ex_str = traceback.format_exc()
@@ -125,12 +122,13 @@ class MessageFileManager(object):
                                 sys.exit()
                         break
                     offs *= 2
-            if first_line[1] <= self.lastseq <= last_line[1]:
-                find_flag = True
-                break
+            if first_line and last_line:
+                if first_line['seq'] <= self.lastseq <= last_line['seq']:
+                    find_flag = True
+                    break
         if find_flag:
-            LOG.info('Locate file successfully, file = %s' % file_)
-            return os.path.join(self.file_dir, file_)
+            LOG.info('Locate file successfully, file = %s' % file_name)
+            return os.path.join(self.file_dir, file_name)
         else:
             LOG.critical('Can not locate message file, when seq=%s' % self.lastseq)
             sys.exit()
@@ -143,29 +141,15 @@ class MessageFileManager(object):
         # Open message file
         f = open(msgfile, "r")
         LOG.info('Open BGP message file: %s' % msgfile)
-        if lastseq == 0:
+        if lastseq in [0, -1]:
             return f
         else:  # skip lastseq
-
-            # deal with first line
-            patt_first = re.compile("^.*, %d," % (lastseq + 1))
             line = f.readline()
-            m = patt_first.match(line)
-            if m is not None:
-                f.seek(0)
-                return f
-
-            # deal with following lines
-            patt = re.compile("^.*, %d," % lastseq)
             while line:
-                m = patt.match(line)
-                if m is not None:
+                line_json = json.loads(line)
+                if line_json['seq'] == lastseq:
                     break
                 line = f.readline()
-
-            # return None is last_seq not found in msg file
-            if m is None:
-                return None
         return f
 
     @property
@@ -209,8 +193,13 @@ class MessageFileManager(object):
         elif line:  # this line is still be writting
             last_len = len(line)
             self._f.seek(self._f.tell() - last_len)
+            self.first_time_catchup_flag = True
             return None
         else:
+            if not self.first_time_catchup_flag:
+                self.first_time_catchup_flag = True
+                LOG.info('first time catchup the file ending')
+                return None
             time.sleep(1)
             # if need to open the next new file
             next_file = self.get_next_file
@@ -229,8 +218,8 @@ class MessageFileManager(object):
                     with open(next_file, 'r') as f_next:
                         first_line = f_next.readline()
                         try:
-                            first_seq = eval(first_line)[1]
-                            last_seq = eval(self.last_line)[1]
+                            first_seq = json.loads(first_line)['seq']
+                            last_seq = json.loads(self.last_line)['seq']
                             LOG.debug('first seq of next file=%s, last seq of old file=%s' % (first_seq, last_seq))
                             if last_seq + 1 == first_seq:
                                 # really need open next file
