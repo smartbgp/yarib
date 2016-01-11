@@ -39,6 +39,9 @@ def setup_basic_config():
     """
     CONF.register_cli_opts(basic_config.com_cli_opts)
     CONF.register_cli_opts(db_config.database_base_options, group='database')
+
+
+def setup_advanced_config():
     if CONF.database.use_replica:
         CONF.register_opts(db_config.database_replica_options, group='database')
 
@@ -51,6 +54,7 @@ def prapare(args=None):
              default_config_files=['/etc/yarib/yarib.ini'])
     except cfg.ConfigFilesNotFoundError:
         CONF(args=args, project='yarib', version=version)
+    setup_advanced_config()
     log.init_log()
     LOG.info('Log (Re)opened.')
     LOG.info("Configuration:")

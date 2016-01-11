@@ -18,7 +18,7 @@
 # dbname = yabgp
 
 # if use replica set
-# use_replica = True
+# use_replica = False
 
 # replica set name
 # replica_name = rs1
