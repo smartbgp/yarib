@@ -49,13 +49,13 @@ class Consumer(object):
             try:
                 bgp_msg = json.loads(line)
             except Exception as e:
-                LOG.critical('Message format error when using eval, line = %s detail: %s' % (line, e))
+                LOG.critical('Message format error when using json.loads(line), line = %s detail: %s' % (line, e))
                 continue
             # message type
             if bgp_msg['type'] == bgp_cons.BGP_UPDATE:
                 try:
                     self.rib_handler.update(
-                        attr=bgp_msg['attr'], nlri=bgp_msg['nlri'], withdraw=bgp_msg['withdraw'],
+                        attr=bgp_msg['msg']['attr'], nlri=bgp_msg['msg']['nlri'], withdraw=bgp_msg['msg']['withdraw'],
                         update=update, insert=insert)
                 except Exception as e:
                     LOG.error(e)
