@@ -103,6 +103,12 @@ class Route(object):
             else:
                 attr_dict['AS_PATH'] = ''
                 attr_dict['ORIGIN_AS'] = ''
+            # change community
+            community = attr.get('8')
+            if community:
+                attr_dict['COMMUNITY'] = community
+            else:
+                attr_dict['COMMUNITY'] = []
 
             if insert is False and update is False:
                 for prefix in nlri:
