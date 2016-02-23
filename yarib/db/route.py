@@ -55,7 +55,7 @@ class Route(object):
 
     def create_index(self):
         LOG.info('Try to create index.')
-        index_key_list = ['PREFIX', 'ORIGIN_AS', 'PEERADDR', 'COMMUNITY']
+        index_key_list = ['PREFIX', 'ORIGIN_AS', 'PEERADDR', 'COMMUNITY', 'AS_PATH']
         for key in index_key_list:
             self.db_collection.create_index(key, background=True)
 
