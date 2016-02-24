@@ -16,7 +16,8 @@
 import logging
 
 from yarib.db.mongodb import MongoApi
-from yarib.db.constants import MONGO_COLLECTION_RIB_TABLE
+from yarib.db.constants import MONGO_COLLECTION_RIB_PREFIX
+from yarib.db.constants import MONGO_COLLECTION_RIB_ATTRIBUTE
 
 from oslo_config import cfg
 
@@ -29,8 +30,6 @@ class Route(object):
 
     def __init__(self):
         self.mongo_connection = self.init_mongo()
-        self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_TABLE
-        self.db_collection = self.mongo_connection.get_collection()
         self.create_index()
         self.clear()
         self.rib_table = {}
@@ -54,10 +53,18 @@ class Route(object):
         return mongo_connection
 
     def create_index(self):
-        LOG.info('Try to create index.')
-        index_key_list = ['PREFIX', 'ORIGIN_AS', 'PEERADDR', 'COMMUNITY', 'AS_PATH']
+
+        LOG.info('Try to create index for collection %s', MONGO_COLLECTION_RIB_PREFIX)
+        self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_PREFIX
+        index_key_list = ['PREFIX', 'PEERADDR', 'ATTR_ID']
         for key in index_key_list:
-            self.db_collection.create_index(key, background=True)
+            self.mongo_connection.get_collection().create_index(key, background=True)
+        LOG.info('Try to create index for collection %s', MONGO_COLLECTION_RIB_ATTRIBUTE)
+
+        self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
+        index_key_list = ['PEERADDR', 'COMMUNITY', 'AS_PATH', 'ATTR']
+        for key in index_key_list:
+            self.mongo_connection.get_collection().create_index(key, background=True)
 
     def update(self, attr, nlri=None, withdraw=None, insert=False, update=False):
         """
@@ -77,16 +84,29 @@ class Route(object):
         """
         if insert:
             # try to insert all prefix in self.rib_table to database
-            LOG.info('first catchup, and insert the full rib table, table size %s', len(self.rib_table))
-            record_list = []
+            LOG.info('first catchup, and insert all attributes')
+            prefix_list = []
+            self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
+            db_collection = self.mongo_connection.get_collection()
             for prefix, attr in self.rib_table.iteritems():
-                record = attr.copy()
-                record.update({'PREFIX': prefix})
-                record_list.append(record)
-            self.db_collection.insert_many(record_list)
+                find_ressult = db_collection.find_one(attr)
+                if find_ressult:
+                    attr_id = find_ressult['_id']
+                else:
+                    insert_result = db_collection.insert_one(attr)
+                    attr_id = insert_result.inserted_id
+                prefix_list.append({
+                    'PREFIX': prefix,
+                    'PEERADDR': CONF.peer_ip,
+                    'ATTR_ID': attr_id
+                })
             self.rib_table = {}
-            LOG.info('finished insert the full rib table')
-            pass
+            LOG.info('finished insert all attributes')
+            LOG.info('insert all prefixes')
+            self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_PREFIX
+            db_collection = self.mongo_connection.get_collection()
+            db_collection.insert_many(prefix_list)
+            LOG.info('finished insert all prefixes')
         # TODO (peng xiao) only support IPv4 unicast now.
         # skip none ipv4 unicast messages
         if nlri == withdraw:
@@ -114,9 +134,21 @@ class Route(object):
                 for prefix in nlri:
                     self.rib_table[prefix] = attr_dict
             elif update:
+                # update attribute
+                self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
+                db_collection = self.mongo_connection.get_collection()
+                find_ressult = db_collection.find_one(attr_dict)
+                if find_ressult:
+                    attr_id = find_ressult['_id']
+                else:
+                    upsert_result = db_collection.insert_one(attr_dict)
+                    attr_id = upsert_result.inserted_id
+
+                self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
+                db_collection = self.mongo_connection.get_collection()
                 for prefix in nlri:
-                    attr_dict['PREFIX'] = prefix
-                    self.db_collection.update_one({'PREFIX': prefix}, {'$set': attr_dict}, upsert=True)
+                    db_collection.update_one(
+                        {'PREFIX': prefix, 'PEERADDR': CONF.peer_ip}, {'ATTR_ID': attr_id}, upsert=True)
 
         else:
             # for withdraw
@@ -124,8 +156,10 @@ class Route(object):
                 for prefix in withdraw:
                     self.rib_table.pop(prefix)
             elif update:
+                self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_PREFIX
+                db_collection = self.mongo_connection.get_collection()
                 for prefix in withdraw:
-                    self.db_collection.delete_one({'PREFIX': prefix, 'PEERADDR': CONF.peer_ip})
+                    db_collection.delete_one({'PREFIX': prefix, 'PEERADDR': CONF.peer_ip})
 
     def clear(self):
         """
@@ -133,7 +167,8 @@ class Route(object):
         :return:
         """
         LOG.info('try to clear rib information for peer %s', CONF.peer_ip)
-        self.db_collection.delete_many({'PEERADDR': CONF.peer_ip})
+        self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_PREFIX
+        self.mongo_connection.get_collection().delete_many({'PEERADDR': CONF.peer_ip})
         self.rib_table = {}
 
     def search(self, sql):
