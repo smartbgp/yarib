@@ -49,6 +49,7 @@ class Consumer(object):
             try:
                 bgp_msg = json.loads(line)
             except Exception as e:
+                LOG.debug(traceback.format_exc())
                 LOG.critical('Message format error when using json.loads(line), line = %s detail: %s' % (line, e))
                 continue
             # message type
