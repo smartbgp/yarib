@@ -85,6 +85,8 @@ class Route(object):
         if insert:
             # try to insert all prefix in self.rib_table to database
             LOG.info('first catchup, and insert all attributes')
+            if not self.rib_table:
+                return
             prefix_list = []
             self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
             db_collection = self.mongo_connection.get_collection()
@@ -110,7 +112,45 @@ class Route(object):
         # TODO (peng xiao) only support IPv4 unicast now.
         # skip none ipv4 unicast messages
         if nlri == withdraw:
-            return
+            if not attr:
+                # empty message
+                return
+            # try to get the address family
+            if "14" in attr:
+                if attr['14']['afi_safi'] == [25, 70]:
+                    nlri = attr.pop('14')
+                    # update attribute
+                    attr_dict = {'ATTR': attr, 'PEERADDR': CONF.peer_ip}
+                    # change as path
+                    as_path = attr['2']
+                    if as_path:
+                        attr_dict['ORIGIN_AS'] = as_path[0][1][-1]
+                        attr_dict['AS_PATH'] = ' '.join(map(str, as_path[0][1])).strip()
+                    else:
+                        attr_dict['AS_PATH'] = ''
+                        attr_dict['ORIGIN_AS'] = ''
+                    # change community
+                    community = attr.get('8')
+                    if community:
+                        attr_dict['COMMUNITY'] = community
+                    else:
+                        attr_dict['COMMUNITY'] = []
+                    self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
+                    db_collection = self.mongo_connection.get_collection()
+                    find_ressult = db_collection.find_one(attr_dict)
+                    if find_ressult:
+                        attr_id = find_ressult['_id']
+                    else:
+                        upsert_result = db_collection.insert_one(attr_dict)
+                        attr_id = upsert_result.inserted_id
+
+                    self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_PREFIX
+                    db_collection = self.mongo_connection.get_collection()
+                    for prefix in nlri:
+                        db_collection.update_one(
+                            {'PREFIX': prefix, 'PEERADDR': CONF.peer_ip}, {'ATTR_ID': attr_id}, upsert=True)
+            elif "15" in attr:
+                withdraw = attr.pop('15')
 
         # for ipv4 update
         if attr:
@@ -144,7 +184,7 @@ class Route(object):
                     upsert_result = db_collection.insert_one(attr_dict)
                     attr_id = upsert_result.inserted_id
 
-                self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
+                self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_PREFIX
                 db_collection = self.mongo_connection.get_collection()
                 for prefix in nlri:
                     db_collection.update_one(
