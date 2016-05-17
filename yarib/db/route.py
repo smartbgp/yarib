@@ -66,20 +66,34 @@ class Route(object):
         for key in index_key_list:
             self.mongo_connection.get_collection().create_index(key, background=True)
 
+    @staticmethod
+    def transform_attr(attr):
+
+        attr_dict = {'ATTR': attr, 'PEERADDR': CONF.peer_ip}
+        # change as path
+        as_path = attr['2']
+        if as_path:
+            attr_dict['ORIGIN_AS'] = as_path[0][1][-1]
+            attr_dict['AS_PATH'] = ' '.join(map(str, as_path[0][1])).strip()
+        else:
+            attr_dict['AS_PATH'] = ''
+            attr_dict['ORIGIN_AS'] = ''
+        # change community
+        community = attr.get('8')
+        if community:
+            attr_dict['COMMUNITY'] = community
+        else:
+            attr_dict['COMMUNITY'] = []
+        return attr_dict
+
     def update(self, attr, nlri=None, withdraw=None, insert=False, update=False):
         """
         update rib table based on the update message
-        msg example:
-        {
-            'ATTR',
-            'WITHDRAW',
-            'NLRI'
-        }
-        :param attr:
-        :param nlri:
-        :param withdraw:
-        :param update:
-        :param insert:
+        :param attr: bgp attribute dict
+        :param nlri: prefix list
+        :param withdraw: prefix list
+        :param update: update or not
+        :param insert: insert or not
         :return:
         """
         if insert:
@@ -118,7 +132,7 @@ class Route(object):
             # try to get the address family
             if "14" in attr:
                 if attr['14']['afi_safi'] == [25, 70]:
-                    nlri = attr.pop('14')
+                    nlri = attr.pop('14')['nlri']
                     # update attribute
                     attr_dict = {'ATTR': attr, 'PEERADDR': CONF.peer_ip}
                     # change as path
@@ -147,10 +161,15 @@ class Route(object):
                     self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_PREFIX
                     db_collection = self.mongo_connection.get_collection()
                     for prefix in nlri:
-                        db_collection.update_one(
-                            {'PREFIX': prefix, 'PEERADDR': CONF.peer_ip}, {'ATTR_ID': attr_id}, upsert=True)
+                        if db_collection.find_one({'PREFIX': prefix, 'PEERADDR': CONF.peer_ip}):
+                            db_collection.update_one({'PREFIX': prefix, 'PEERADDR': CONF.peer_ip},
+                                                     {'$set':{'ATTR_ID': attr_id}})
+                        else:
+                            db_collection.insert_one(
+                                {'PREFIX': prefix, 'PEERADDR': CONF.peer_ip, 'ATTR_ID': attr_id})
             elif "15" in attr:
                 withdraw = attr.pop('15')
+            return
 
         # for ipv4 update
         if attr:
