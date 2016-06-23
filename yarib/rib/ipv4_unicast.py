@@ -13,14 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from abc import ABCMeta, abstractmethod
+from yarib.rib import Route
 
 
-class Route(metaclass=ABCMeta):
-
-    def __init__(self):
-        pass
-
-    @abstractmethod
-    def create_index(self):
-        pass
+class IPv4Unicast(Route):
+    pass
