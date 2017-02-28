@@ -66,15 +66,34 @@ class Route(object):
         for key in index_key_list:
             self.mongo_connection.get_collection().create_index(key, background=True)
 
+    def from_mem_to_db(self):
+        LOG.info('first catchup, and insert all attributes')
+        prefix_list = []
+        self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
+        db_collection = self.mongo_connection.get_collection()
+        for prefix, attr in self.rib_table.iteritems():
+            find_ressult = db_collection.find_one(attr)
+            if find_ressult:
+                attr_id = find_ressult['_id']
+            else:
+                insert_result = db_collection.insert_one(attr)
+                attr_id = insert_result.inserted_id
+            prefix_list.append({
+                'PREFIX': prefix,
+                'PEERADDR': CONF.peer_ip,
+                'ATTR_ID': attr_id
+            })
+        self.rib_table = {}
+        LOG.info('finished insert all attributes')
+        LOG.info('insert all prefixes')
+        self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_PREFIX
+        db_collection = self.mongo_connection.get_collection()
+        db_collection.insert_many(prefix_list)
+        LOG.info('finished insert all prefixes')
+
     def update(self, attr, nlri=None, withdraw=None, insert=False, update=False):
         """
         update rib table based on the update message
-        msg example:
-        {
-            'ATTR',
-            'WITHDRAW',
-            'NLRI'
-        }
         :param attr:
         :param nlri:
         :param withdraw:
@@ -82,35 +101,15 @@ class Route(object):
         :param insert:
         :return:
         """
+        ipv4_unicast = True
         if insert:
             # try to insert all prefix in self.rib_table to database
-            LOG.info('first catchup, and insert all attributes')
-            prefix_list = []
-            self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
-            db_collection = self.mongo_connection.get_collection()
-            for prefix, attr in self.rib_table.iteritems():
-                find_ressult = db_collection.find_one(attr)
-                if find_ressult:
-                    attr_id = find_ressult['_id']
-                else:
-                    insert_result = db_collection.insert_one(attr)
-                    attr_id = insert_result.inserted_id
-                prefix_list.append({
-                    'PREFIX': prefix,
-                    'PEERADDR': CONF.peer_ip,
-                    'ATTR_ID': attr_id
-                })
-            self.rib_table = {}
-            LOG.info('finished insert all attributes')
-            LOG.info('insert all prefixes')
-            self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_PREFIX
-            db_collection = self.mongo_connection.get_collection()
-            db_collection.insert_many(prefix_list)
-            LOG.info('finished insert all prefixes')
+            self.from_mem_to_db()
         # TODO (peng xiao) only support IPv4 unicast now.
         # skip none ipv4 unicast messages
         if nlri == withdraw:
-            return
+            # none ipv4 unicast
+            ipv4_unicast = False
 
         # for ipv4 update
         if attr:
@@ -130,26 +129,30 @@ class Route(object):
             else:
                 attr_dict['COMMUNITY'] = []
 
-            if insert is False and update is False:
-                for prefix in nlri:
-                    self.rib_table[prefix] = attr_dict
-            elif update:
-                # update attribute
-                self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
-                db_collection = self.mongo_connection.get_collection()
-                find_ressult = db_collection.find_one(attr_dict)
-                if find_ressult:
-                    attr_id = find_ressult['_id']
-                else:
-                    upsert_result = db_collection.insert_one(attr_dict)
-                    attr_id = upsert_result.inserted_id
+            if ipv4_unicast:
+                if insert is False and update is False:
+                    for prefix in nlri:
+                        self.rib_table[prefix] = attr_dict
+                elif update:
+                    # update attribute
+                    self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
+                    db_collection = self.mongo_connection.get_collection()
+                    find_ressult = db_collection.find_one(attr_dict)
+                    if find_ressult:
+                        attr_id = find_ressult['_id']
+                    else:
+                        upsert_result = db_collection.insert_one(attr_dict)
+                        attr_id = upsert_result.inserted_id
 
+                    self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_PREFIX
+                    db_collection = self.mongo_connection.get_collection()
+                    for prefix in nlri:
+                        db_collection.update_one(
+                            {'PREFIX': prefix, 'PEERADDR': CONF.peer_ip},
+                            {'$set': {'ATTR_ID': attr_id}}, upsert=True)
+            else:
+                # no ipv4
                 self.mongo_connection.collection_name = MONGO_COLLECTION_RIB_ATTRIBUTE
-                db_collection = self.mongo_connection.get_collection()
-                for prefix in nlri:
-                    db_collection.update_one(
-                        {'PREFIX': prefix, 'PEERADDR': CONF.peer_ip}, {'ATTR_ID': attr_id}, upsert=True)
-
         else:
             # for withdraw
             if insert is False and update is False:

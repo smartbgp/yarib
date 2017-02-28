@@ -27,7 +27,7 @@ MONGO_COLLECTION_ROUTE_POLICY = 'ROUTE_POLICY'
 
 # mongodb
 CONFIG['DB_NAME'] = os.environ.get('MONGODB_NAME', 'yabgp')
-CONFIG['DB_URL'] = os.environ.get('MONGODB_URL', 'mongodb://127.0.0.1:27017')
+CONFIG['DB_URL'] = os.environ.get('MONGODB_URL', 'mongodb://yabgp:yabgp@as-gerrit.cisco.com:27017,as-gerrit.cisco.com:27018,as-gerrit.cisco.com:27019')
 
 # logging
 handler = logging.FileHandler('prefix_verified.log')
@@ -67,8 +67,11 @@ def main():
                     nexthop = act_prefix['new_attr'].get('3')
                     local_pre = act_prefix['new_attr'].get('5')
                     prefix_find = dbh[MONGO_COLLECTION_RIB_PREFIX].find_one({'PREFIX': prefix})
-                    if not prefix_find:
-                        verified = False
+                    if afi_safi == 'ipv4':
+                        if not prefix_find:
+                            verified = False
+                            break
+                    
                     else:
                         # check attribute
                         attribute_find = dbh[MONGO_COLLECTION_RIB_ATTRIBUTE].find_one({'_id': prefix_find['ATTR_ID']})
@@ -78,8 +81,10 @@ def main():
                             # check nexthop and local_pre
                             if nexthop != attribute_find['ATTR']['3']:
                                 verified = False
+                                LOG.info('prefix %s nexthop diff %s %s', prefix, nexthop, attribute_find['ATTR']['3'])
                             if local_pre != attribute_find['ATTR']['5']:
                                 verified = False
+                                LOG.info('prefix %s local pre diff %s %s', prefix, local_pre, attribute_find['ATTR']['5'])
                 else:
                     verified = False
         if verified:
